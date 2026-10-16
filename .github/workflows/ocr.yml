@@ -1,0 +1,48 @@
+name: OCR PDF and commit text
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ocrmypdf poppler-utils tesseract-ocr tesseract-ocr-chi-sim
+
+      - name: Run OCR and extract text
+        run: |
+          set -e
+          INPUT="六笔画文字存储建议 - DeepSeek.pdf"
+          echo "Looking for PDF: $INPUT"
+          if [ ! -f "$INPUT" ]; then echo "ERROR: PDF not found at $INPUT"; ls -la; exit 1; fi
+          # Run OCR (Chinese simplified + English)
+          ocrmypdf --language chi_sim+eng --output-type pdfa "$INPUT" output_ocr.pdf
+          # Extract plain text while preserving layout
+          pdftotext -layout output_ocr.pdf output.txt || true
+          # Wrap into a Markdown file
+          echo "# OCRed Text - $INPUT" > output.md
+          echo "" >> output.md
+          cat output.txt >> output.md || true
+
+      - name: Commit OCR results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add output_ocr.pdf output.txt output.md || true
+          if git diff --staged --quiet; then
+            echo "No OCR changes to commit"
+          else
+            git commit -m "Add OCRed text and PDF for 六笔画文字存储建议 - DeepSeek.pdf"
+            git push
+          fi
