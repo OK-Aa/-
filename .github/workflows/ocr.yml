@@ -20,14 +20,37 @@ jobs:
 
       - name: Run OCR and extract text
         run: |
-          set -e
+          set -euo pipefail
           INPUT="六笔画文字存储建议 - DeepSeek.pdf"
           echo "Looking for PDF: $INPUT"
-          if [ ! -f "$INPUT" ]; then echo "ERROR: PDF not found at $INPUT"; ls -la; exit 1; fi
-          # Run OCR (Chinese simplified + English)
-          ocrmypdf --language chi_sim+eng --output-type pdfa "$INPUT" output_ocr.pdf
-          # Extract plain text while preserving layout
-          pdftotext -layout output_ocr.pdf output.txt || true
+          if [ ! -f "$INPUT" ]; then
+            echo "ERROR: PDF not found at $INPUT"
+            ls -la
+            exit 1
+          fi
+
+          # show file info
+          ls -lh "$INPUT"
+          file "$INPUT" || true
+
+          # Try ocrmypdf with --skip-text (only OCR pages without text)
+          echo "Running ocrmypdf with --skip-text..."
+          if ocrmypdf --skip-text --language chi_sim+eng --output-type pdfa "$INPUT" output_ocr.pdf; then
+            echo "ocrmypdf succeeded; using output_ocr.pdf for text extraction"
+            PDF_FOR_TEXT="output_ocr.pdf"
+          else
+            echo "ocrmypdf failed (or returned non-zero). Falling back to extracting text from the original PDF."
+            # If ocrmypdf produced a PDF anyway, prefer it
+            if [ -f output_ocr.pdf ]; then
+              PDF_FOR_TEXT="output_ocr.pdf"
+            else
+              PDF_FOR_TEXT="$INPUT"
+            fi
+          fi
+
+          # Extract plain text (preserving layout)
+          pdftotext -layout "$PDF_FOR_TEXT" output.txt || true
+
           # Wrap into a Markdown file
           echo "# OCRed Text - $INPUT" > output.md
           echo "" >> output.md
